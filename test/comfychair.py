@@ -1,4 +1,4 @@
-#! /usr/bin/env python3
+#! /usr/bin/env python
 
 # Copyright (C) 2002, 2003 by Martin Pool <mbp@samba.org>
 # Copyright (C) 2003 by Tim Potter <tpot@samba.org>
@@ -31,7 +31,7 @@ For more information, see the file README.comfychair.
 To run a test suite based on ComfyChair, just run it as a program.
 """
 
-import sys, os, re, shutil
+import sys, re, shutil
 
 
 class TestCase:
@@ -46,15 +46,12 @@ class TestCase:
         self._enter_rundir()
         self._save_environment()
         self.add_cleanup(self.teardown)
-        # Prevent localizations interfering with attempts to parse
-        # program output and error messages.  LC_ALL has higher
-        # priority (see locale(7)), but set both just in case.
-        os.environ['LANG'] = 'C'
-        os.environ['LC_ALL'] = 'C'
+
 
     # --------------------------------------------------
     # Save and restore directory
     def _enter_rundir(self):
+        import os
         self.basedir = os.getcwd()
         self.add_cleanup(self._restore_directory)
         self.rundir = os.path.join(self.basedir,
@@ -64,17 +61,21 @@ class TestCase:
         shutil.rmtree(self.rundir, ignore_errors=1)
         os.makedirs(self.tmpdir)
         os.chdir(self.rundir)
+	os.environ['LANG'] = 'C'
 
     def _restore_directory(self):
+        import os
         os.chdir(self.basedir)
 
     # --------------------------------------------------
     # Save and restore environment
     def _save_environment(self):
+        import os
         self._saved_environ = os.environ.copy()
         self.add_cleanup(self._restore_environment)
 
     def _restore_environment(self):
+        import os
         os.environ.clear()
         os.environ.update(self._saved_environ)
 
@@ -105,14 +106,13 @@ class TestCase:
         """
         while self._cleanups:
             try:
-                clean_task = self._cleanups.pop()
-                clean_task()
+                apply(self._cleanups.pop())
             except KeyboardInterrupt:
-                print("interrupted during cleanups")
+                print "interrupted during cleanups"
                 _report_error(self, debugger)
                 return 2
             except:
-                print("error during cleanups")
+                print "error during cleanups"
                 _report_error(self, debugger)
                 return 1
         return 0
@@ -131,10 +131,11 @@ class TestCase:
 If the predicate value is not true, the test is skipped with a message explaining
 why."""
         if not predicate:
-            raise NotRunError(message)
+            raise NotRunError, message
 
     def require_root(self):
         """Skip this test unless run by root."""
+        import os
         self.require(os.getuid() == 0,
                      "must be root to run this test")
 
@@ -147,11 +148,11 @@ why."""
 
     def assert_equal(self, a, b):
         if not a == b:
-            raise AssertionError("assertEquals failed: %s %s" % (repr(a), repr(b)))
+            raise AssertionError("assertEquals failed: %s" % `(a, b)`)
             
     def assert_notequal(self, a, b):
         if a == b:
-            raise AssertionError("assertNotEqual failed: %s %s" % (repr(a), repr(b)))
+            raise AssertionError("assertNotEqual failed: %s" % `(a, b)`)
 
     def assert_re_match(self, pattern, s):
         """Assert that a string matches a particular pattern
@@ -166,7 +167,7 @@ why."""
         if not re.match(pattern, s):
             raise AssertionError("string does not match regexp\n"
                                  "    string: %s\n"
-                                 "    re: %s" % (repr(s), repr(pattern)))
+                                 "    re: %s" % (`s`, `pattern`))
 
     def assert_re_search(self, pattern, s):
         """Assert that a string *contains* a particular pattern
@@ -181,10 +182,11 @@ why."""
         if not re.search(pattern, s):
             raise AssertionError("string does not contain regexp\n"
                                  "    string: %s\n"
-                                 "    re: %s" % (repr(s), repr(pattern)))
+                                 "    re: %s" % (`s`, `pattern`))
 
 
     def assert_no_file(self, filename):
+        import os.path
         assert not os.path.exists(filename), ("file exists but should not: %s" % filename)
 
 
@@ -192,7 +194,8 @@ why."""
     # Methods for running programs
 
     def runcmd_background(self, cmd):
-        self.test_log = self.test_log + "Run in background:\n" + repr(cmd) + "\n"
+        import os
+        self.test_log = self.test_log + "Run in background:\n" + `cmd` + "\n"
         pid = os.fork()
         if pid == 0:
             # child
@@ -224,22 +227,23 @@ stderr:
         Based in part on popen2.py
 
         Returns (waitstatus, stdout, stderr)."""
+        import os, types
         pid = os.fork()
         if pid == 0:
             # child
-            try:
+            try: 
                 pid = os.getpid()
                 openmode = os.O_WRONLY|os.O_CREAT|os.O_TRUNC
 
-                outfd = os.open('%d.out' % pid, openmode)
+                outfd = os.open('%d.out' % pid, openmode, 0666)
                 os.dup2(outfd, 1)
                 os.close(outfd)
 
-                errfd = os.open('%d.err' % pid, openmode)
+                errfd = os.open('%d.err' % pid, openmode, 0666)
                 os.dup2(errfd, 2)
                 os.close(errfd)
 
-                if isinstance(cmd, str):
+                if isinstance(cmd, types.StringType):
                     cmd = ['/bin/sh', '-c', cmd]
 
                 os.execvp(cmd[0], cmd)
@@ -255,9 +259,10 @@ stderr:
 
     def runcmd_unchecked(self, cmd, skip_on_noexec = 0):
         """Invoke a command; return (exitcode, stdout, stderr)"""
+        import os
         waitstatus, stdout, stderr = self.run_captured(cmd)
         assert not os.WIFSIGNALED(waitstatus), \
-               ("%s terminated with signal %d" % (repr(cmd), os.WTERMSIG(waitstatus)))
+               ("%s terminated with signal %d" % (`cmd`, os.WTERMSIG(waitstatus)))
         rc = os.WEXITSTATUS(waitstatus)
         self.test_log = self.test_log + ("""Run command: %s
 Wait status: %#x (exit code %d, signal %d)
@@ -270,13 +275,13 @@ stderr:
             # Either we could not execute the command or the command
             # returned exit code 127.  According to system(3) we can't
             # tell the difference.
-            raise NotRunError("could not execute %s" % repr(cmd))
+            raise NotRunError, "could not execute %s" % `cmd`
         return rc, stdout, stderr
     
 
     def explain_failure(self, exc_info = None):
-        print("test_log:")
-        print(self.test_log)
+        print "test_log:"
+        print self.test_log
 
 
     def log(self, msg):
@@ -299,13 +304,14 @@ def _report_error(case, debugger):
       case         TestCase instance
       debugger     if true, a debugger function to be applied to the traceback
 """
+    import sys
     ex = sys.exc_info()
-    print("-----------------------------------------------------------------")
+    print "-----------------------------------------------------------------"
     if ex:
         import traceback
         traceback.print_exc(file=sys.stdout)
     case.explain_failure()
-    print("-----------------------------------------------------------------")
+    print "-----------------------------------------------------------------"
 
     if debugger:
         tb = ex[2]
@@ -330,12 +336,12 @@ def runtest(testcase_class, ret, verbose=0, debugger=None, subtest=0):
     test progress is not printed.  
     """
     if not subtest:
-        print("%-30s" % _test_name(testcase_class), end=' ')
+        print "%-30s" % _test_name(testcase_class),
         def failure_print(message):
-            print(message)
+            print message
     else:
         def failure_print(message):
-            print('[%s %s]' % (_test_name(testcase_class), message))
+            print '[%s %s]' % (_test_name(testcase_class), message)
             
     # flush now so that long running tests are easier to follow
     sys.stdout.flush()
@@ -348,13 +354,13 @@ def runtest(testcase_class, ret, verbose=0, debugger=None, subtest=0):
             obj.setup()
             obj.runtest()
             if not subtest:
-                print("OK")
+                print "OK"
         except KeyboardInterrupt:
             failure_print("INTERRUPT")
             if obj:
                 _report_error(obj, debugger)
             raise
-        except NotRunError as msg:
+        except NotRunError, msg:
             failure_print("NOTRUN, %s" % msg.value)
         except:
             failure_print("FAIL")
@@ -399,12 +405,13 @@ def _test_name(test_class):
     try:
         return test_class.__name__
     except:
-        return repr(test_class)
+        return `test_class`
 
 
 def print_help():
     """Help for people running tests"""
-    print("""%s: software test suite based on ComfyChair
+    import sys
+    print """%s: software test suite based on ComfyChair
 
 usage:
     To run all tests, just run this program.  To run particular tests,
@@ -415,13 +422,13 @@ options:
     --list              list available tests
     --verbose, -v       show more information while running tests
     --post-mortem, -p   enter Python debugger on error
-""" % sys.argv[0])
+""" % sys.argv[0]
 
 
 def print_list(test_list):
     """Show list of available tests"""
     for test_class in test_list:
-        print("    %s" % _test_name(test_class))
+        print "    %s" % _test_name(test_class)
 
 
 def main(tests, extra_tests=[]):
@@ -442,12 +449,13 @@ by default runs all tests in the suggested order.
 
 Calls sys.exit() on completion.
 """
+    from sys import argv
     import getopt, sys
 
     opt_verbose = 0
     debugger = None
 
-    opts, args = getopt.getopt(sys.argv[1:], 'pv',
+    opts, args = getopt.getopt(argv[1:], 'pv',
                                ['help', 'list', 'verbose', 'post-mortem'])
     for opt, opt_arg in opts:
         if opt == '--help':
@@ -478,4 +486,4 @@ Calls sys.exit() on completion.
 
 
 if __name__ == '__main__':
-    print(__doc__)
+    print __doc__

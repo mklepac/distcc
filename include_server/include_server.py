@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/python2.4
 
 # Copyright 2007 Google Inc.
 #
@@ -32,7 +32,7 @@ import os
 import re
 import shutil
 import signal
-import socketserver
+import SocketServer
 import sys
 import tempfile
 import traceback
@@ -44,7 +44,7 @@ import include_analyzer_memoizing_node
 import statistics
 
 # The default size passed to listen by a streaming socket server of
-# socketserver is only 5. Make it 128 (which appears to be the hard
+# SocketServer is only 5. Make it 128 (which appears to be the hard
 # built-in limit for Linux). This enables requests to the include
 # server to be buffered better.
 REQUEST_QUEUE_SIZE = 128
@@ -61,7 +61,7 @@ NotCoveredTimeOutError = basics.NotCoveredTimeOutError
 # USAGE
 
 def Usage():
-  print("""Usage:
+  print """Usage:
 
 include_server --port INCLUDE_SERVER_PORT [OPTIONS]
 
@@ -77,15 +77,15 @@ OPTIONS:
                                1 = warnings
                                2 = trace some functions
                              other powers of two: see basics.py.
-
+                             
  -e, --email                 Send email to discc-pump developers when include
                              server gets in trouble.
 
  --email_bound NUMBER        Maximal number of emails to send (in addition to
                              a final email). Default: 3.
-
+                             
  --no-email                  Do not send email.
-
+ 
  --path_observation_re=RE    Issue warning message whenever a filename is
                              resolved to a realpath that is matched by RE,
                              which is a regular expression in Python syntax.
@@ -95,9 +95,9 @@ OPTIONS:
 
  --pid_file FILEPATH         The pid of the include server is written to file
                              FILEPATH.
-
+                             
  -s, --statistics            Print information to stdout about include analysis.
-
+ 
  --stat_reset_triggers=LIST  Flush stat caches when the timestamp of any
                              filepath in LIST changes or the filepath comes in
                              or out of existence.  LIST is a colon separated
@@ -110,29 +110,23 @@ OPTIONS:
 
  -t, --time                  Print elapsed, user, and system time to stderr.
 
- --unsafe_absolute_includes  Do preprocessing on the compilation server even if
+ --unsafe_absolute_includes  Do preprocessing on the compilation server even if 
                              includes of absolute filepaths are encountered.
                              Such includes are then ignored for the purposes of
                              gathering the include closure. See the
                              include_server(1) man page for futher information.
                              Using this option may lead to incorrect results.
-
- --no_force_dirs             Do not force the creation of all directories used
-                             in an include path.  May improve peformance for
-                             some cases, but will break builds which use
-                             include structures like "<foo/../file.h>" without
-                             including other files in foo/.
-
+                             
  -v, --verify                Verify that files in CPP closure are contained in
                              closure calculated by include processor.
-
+  
  -w, --write_include_closure Write a .d_approx file which lists all the
                              included files calculated by the include server;
                              with -x, additionally write the included files
                              as calculated by CPP to a .d_exact file.
 
  -x, --exact_analysis        Use CPP instead, do not omit system headers files.
-""")
+"""
 
 # TODO(klarlund)
 #   --simple_algorithm         not currently implemented
@@ -142,10 +136,10 @@ OPTIONS:
 
 def _PrintStackTrace(fd):
   """Print stacktrace to file object."""
-  print('------- Include server stack trace -----------', file=fd)
+  print >> fd, '------- Include server stack trace -----------'
   # Limit is 1000 entries.
   traceback.print_exc(1000, fd)
-  print('----------------------------------------------', file=fd)
+  print >> fd, '----------------------------------------------'
 
 
 class _EmailSender(object):
@@ -176,7 +170,7 @@ class _EmailSender(object):
         basics.EMAIL_SUBJECT,
         basics.DCC_EMAILLOG_WHOM_TO_BLAME,
         user_addr,
-        "Automated email number %d in include server session.\n" %
+        "Automated email number %d in include server session.\n" % 
         self.number_sent,
         fd.read())
       s = smtplib.SMTP()
@@ -195,7 +189,7 @@ class _EmailSender(object):
     Arguments:
       fd: a file object that will be closed.
       force: send the mail even if number of emails sent exceed
-        basics.opt_email_bound
+        basics.opt_email_bound 
     """
     fd.seek(0, 0)
     Debug(DEBUG_WARNING, "%s", fd.read())
@@ -257,7 +251,7 @@ def ExactDependencies(cmd, realpath_map, systemdir_prefix_cache,
                                    fd_d_.read())))
   fd_d_.close()
   _delete_temp_files()
-  # The sets of dependencies is a set the of realpath indices of the
+  # The sets of dependencies is a set the of realpath indices of the 
   # absolute filenames corresponding to files in the dotd file.
   deps = set([ rp_idx
                for filepath in dotd.split()
@@ -282,7 +276,7 @@ def WriteDependencies(deps, result_file, realpath_map):
     fd.write("\n".join([realpath_map.string[d] for d in deps]))
     fd.write("\n")
     fd.close()
-  except (IOError, OSError) as  why:
+  except (IOError, OSError), why:
     raise NotCoveredError("Could not write to '%s': %s" % (result_file, why))
 
 
@@ -319,12 +313,12 @@ def VerifyExactDependencies(include_closure,
 
 # A SOCKET SERVER
 
-class Queuingsocketserver(socketserver.UnixStreamServer):
+class QueuingSocketServer(SocketServer.UnixStreamServer):
   """A socket server whose request queue have size REQUEST_QUEUE_SIZE."""
   request_queue_size = REQUEST_QUEUE_SIZE
 
   def handle_error(self, _, client_address):
-    """Re-raise current exception; overrides socketserver.handle_error.
+    """Re-raise current exception; overrides SocketServer.handle_error.
     """
     raise
 
@@ -337,7 +331,7 @@ def DistccIncludeHandlerGenerator(include_analyzer):
 
   # TODO(klarlund): Can we do this without dynamic type generation?
 
-  class IncludeHandler(socketserver.StreamRequestHandler):
+  class IncludeHandler(SocketServer.StreamRequestHandler):
     """Define a handle() method that invokes the include closure algorithm ."""
 
     def handle(self):
@@ -389,14 +383,15 @@ def DistccIncludeHandlerGenerator(include_analyzer):
           # all circumstances.
           include_analyzer.timer.Cancel()
 
-      except NotCoveredError as inst:
+      except NotCoveredError, inst:
         # Warn user. The 'Preprocessing locally' message is meant to
         # assure the user that the build process is otherwise intact.
-        fd = tempfile.TemporaryFile(mode='w+')
-        print(("Preprocessing locally. Include server not covering: %s for "
+        fd = os.tmpfile()
+        print >> fd, (
+          "Preprocessing locally. Include server not covering: %s for "
           + "translation unit '%s'") % (
             (inst.args and inst.args[0] or "unknown reason",
-             include_analyzer.translation_unit)), file=fd, end=' ')
+             include_analyzer.translation_unit)),
         # We don't include a stack trace here.
         include_analyzer.email_sender.MaybeSendEmail(fd,
                                                      never=not inst.send_email)
@@ -408,7 +403,7 @@ def DistccIncludeHandlerGenerator(include_analyzer):
           Debug(DEBUG_TRACE,
                 "Clearing caches because of include server timeout.")
           include_analyzer.ClearStatCaches()
-
+        
       except SignalSIGTERM:
         # Normally, we will get this exception when the include server is no
         # longer needed. But we also handle it here, during the servicing of a
@@ -418,30 +413,32 @@ def DistccIncludeHandlerGenerator(include_analyzer):
       except KeyboardInterrupt:
         # Propagate to the last-chance exception handler in Main.
         raise
-      except SystemExit as inst:
+      except SystemExit, inst:
         # When handler tries to exit (by invoking sys.exit, which in turn raises
         # SystemExit), something is really wrong. Terminate the include
         # server. But, print out an informative message first.
-        fd = tempfile.TemporaryFile(mode='w+')
-        print(("Preprocessing locally. Include server fatal error: '%s' for "
+        fd = os.tmpfile()
+        print >> fd, (
+          ("Preprocessing locally. Include server fatal error: '%s' for "
            + "translation unit '%s'") % (
-          (inst.args, include_analyzer.translation_unit)), file=fd, end=' ')
+          (inst.args, include_analyzer.translation_unit))),
         _PrintStackTrace(fd)
         include_analyzer.email_sender.MaybeSendEmail(fd, force=True)
         distcc_pump_c_extensions.XArgv(self.wfile.fileno(), [])
         sys.exit("Now terminating include server.")
       # All other exceptions are trapped here.
-      except Exception as inst:
+      except Exception, inst:
         # Internal error. Better be safe than sorry: terminate include
         # server. But show error to user on stderr. We hope this message will be
         # reported.
-        fd = tempfile.TemporaryFile(mode='w+')
-        print(("Preprocessing locally. Include server internal error: '%s: %s'"
-           + " for translation unit '%s'") % (
-          (inst.__class__, inst.args, include_analyzer.translation_unit)), file=fd)
+        fd = os.tmpfile()
+        print >> fd, (
+          ("Preprocessing locally. Include server internal error: '%s: %s' "
+           + "for translation unit '%s'") % (
+          (inst.__class__, inst.args, include_analyzer.translation_unit))),
         _PrintStackTrace(fd)
-        # # Force this email through (if basics.opt_send_email is True), because
-        # # this is the last one and this is an important case to report.
+        # Force this email through (if basics.opt_send_email is True), because
+        # this is the last one and this is an important case to report.
         include_analyzer.email_sender.MaybeSendEmail(fd, force=True)
         distcc_pump_c_extensions.XArgv(self.wfile.fileno(), [])
         raise SignalSIGTERM  # to be caught in Main with no further stack trace
@@ -465,13 +462,13 @@ def _ParseCommandLineOptions():
 
   Returns:
     (include_server_port, pid_file), where include_server_port
-    is a string and pid_file is a string or None
+    is a string and pid_file is a string or None 
   Modifies:
     option variables in module basics
   """
   try:
     opts, args = getopt.getopt(sys.argv[1:],
-			       "d:estvwx",
+			       "d:estvw",
 			       ["port=",
                                 "pid_file=",
                                 "debug_pattern=",
@@ -485,7 +482,6 @@ def _ParseCommandLineOptions():
                                 "statistics",
                                 "time",
                                 "unsafe_absolute_includes",
-                                "no_force_dirs",
                                 "verify",
                                 "write_include_closure"])
   except getopt.GetoptError:
@@ -497,8 +493,8 @@ def _ParseCommandLineOptions():
   for opt, arg in opts:
     try:
       if opt in ("-d", "--debug_pattern"):
-        basics.opt_debug_pattern = int(arg)
-      if opt in ("--port", ):
+	basics.opt_debug_pattern = int(arg)
+      if opt in ("--port",):
         include_server_port = arg
       if opt in ("--pid_file",):
         pid_file = arg
@@ -521,8 +517,6 @@ def _ParseCommandLineOptions():
         sys.exit("Not implemented")
       if opt in ("--unsafe_absolute_includes",):
         basics.opt_unsafe_absolute_includes = True
-      if opt in ("--no_force_dirs",):
-        basics.opt_no_force_dirs = True
       if opt in ("-s", "--statistics"):
         basics.opt_statistics = True
       if opt in ("-t", "--time"):
@@ -538,8 +532,9 @@ def _ParseCommandLineOptions():
       sys.exit(1)
   # We must have a port!
   if not include_server_port:
-    print("INCLUDE_SERVER_PORT not provided. Aborting.", file=sys.stderr)
-    print("-------------------------------------------", "\n", file=sys.stderr)
+    print >> sys.stderr, "INCLUDE_SERVER_PORT not provided. Aborting."
+    print >> sys.stderr, "-------------------------------------------"
+    print >> sys.stderr
     Usage()
     sys.exit(1)
   return (include_server_port, pid_file)
@@ -557,9 +552,10 @@ def _PrintTimes(times_at_start, times_at_fork, times_child):
              + times_child[1] + times_child[1])
   total_cpu = total_u + total_s
   total_e = times_child[4] - times_at_start[4]
-  print("Include server timing. ", sys.stderr)
-  print("Elapsed: %3.1fs User: %3.1fs System: %3.1fs User + System: %3.1fs" %
-    (total_e, total_u, total_s, total_cpu), file=sys.stderr)
+  print >> sys.stderr, "Include server timing. ",
+  print >> sys.stderr, (
+    "Elapsed: %3.1fs User: %3.1fs System: %3.1fs User + System: %3.1fs" % 
+    (total_e, total_u, total_s, total_cpu))
 
 
 class _IncludeServerPortReady(object):
@@ -576,12 +572,12 @@ class _IncludeServerPortReady(object):
 
   def Acquire(self):
     """Acquire the semaphore after fork;  blocks until a call of Release."""
-    if os.read(self.read_fd, 1) != b'\n':
+    if os.read(self.read_fd, 1) != '\n':
       sys.exit("Include server: _IncludeServerPortReady.Acquire failed.")
 
   def Release(self):
     """Release the semaphore after fork."""
-    if os.write(self.write_fd, b'\n') != 1:
+    if os.write(self.write_fd, '\n') != 1:
       sys.exit("Include server: _IncludeServerPortReady.Release failed.")
 
 
@@ -589,7 +585,7 @@ def _SetUp(include_server_port):
   """Setup include_analyzer and socket server.
 
   Returns: (include_analyzer, server)"""
-
+  
   try:
     os.unlink(include_server_port)
   except (IOError, OSError):
@@ -610,9 +606,9 @@ def _SetUp(include_server_port):
            client_root_keeper,
            basics.opt_stat_reset_triggers))
   include_analyzer.email_sender = _EmailSender()
-
+  
   # Wrap it inside a handler that is a part of a UnixStreamServer.
-  server = Queuingsocketserver(
+  server = QueuingSocketServer(
     include_server_port,
     # Now, produce a StreamRequestHandler subclass whose new objects has
     # a handler which calls the include_analyzer just made.
@@ -642,12 +638,12 @@ def Main():
   # the process id of child to the pid file.
   times_at_fork = os.times()
   pid = os.fork()
-  if pid != 0:
+  if pid != 0: 
     # In parent.
     #
     if pid_file:
       pid_file_fd = open(pid_file, "w")
-      print(pid, file=pid_file_fd)
+      print >> pid_file_fd, pid
       pid_file_fd.close()
     # Just run to completion now -- after making sure that child is ready.
     include_server_port_ready.Acquire()
@@ -668,15 +664,15 @@ def Main():
         # gc.set_debug(gc.DEBUG_STATS + gc.DEBUG_COLLECTABLE)
         server.serve_forever()
       except KeyboardInterrupt:
-        print("Include server: keyboard interrupt, quitting after cleaning up.",
-            file=sys.stderr)
+        print >> sys.stderr, (
+            "Include server: keyboard interrupt, quitting after cleaning up.")
         _CleanOut(include_analyzer, include_server_port)
       except SignalSIGTERM:
         Debug(DEBUG_TRACE, "Include server shutting down.")
         _CleanOut(include_analyzer, include_server_port)
       except:
-        print("Include server: exception occurred, quitting after cleaning up.",
-                file=sys.stderr)
+        print >> sys.stderr, (
+            "Include server: exception occurred, quitting after cleaning up.")
         _PrintStackTrace(sys.stderr)
         _CleanOut(include_analyzer, include_server_port)
         raise # reraise exception
@@ -684,8 +680,8 @@ def Main():
       if basics.opt_print_times:
         _PrintTimes(times_at_start, times_at_fork, os.times())
 
-
+        
 if __name__ == "__main__":
-  # Treat SIGTERM (the default of kill) as Ctrl-C.
+  # Treat SIGTERM (the default of kill) as Ctrl-C.  
   signal.signal(signal.SIGTERM, basics.RaiseSignalSIGTERM)
   Main()

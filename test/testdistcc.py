@@ -1,4 +1,4 @@
-#! /usr/bin/env python3
+#! /usr/bin/env python2.2
 
 # Copyright (C) 2002, 2003, 2004 by Martin Pool <mbp@samba.org>
 # Copyright 2007 Google Inc.
@@ -50,6 +50,8 @@ Example:
 # abstract superclasses just provide methods that can be called,
 # rather than establishing default behaviour.
 
+# TODO: Run the server in a different directory from the clients
+
 # TODO: Some kind of direct test of the host selection algorithm.
 
 # TODO: Test host files containing \r.
@@ -82,10 +84,21 @@ Example:
 
 # Check that without DISTCC_SAVE_TEMPS temporary files are cleaned up.
 
+# TODO: Test compiling a really large source file that produces a
+# large object file.  Perhaps need to generate it at run time -- just
+# one big array?
+
 # TODO: Perhaps redirect stdout, stderr to a temporary file while
 # running?  Use os.open(), os.dup2().
 
+# TODO: Test "distcc gcc -c foo.c bar.c".  gcc would actually compile
+# both of them.  We could split it into multiple compiler invocations,
+# but this is so rare that it's probably not worth the complexity.  So
+# at the moment is just handled locally.
+
 # TODO: Test crazy option arguments like "distcc -o -output -c foo.c"
+
+# TODO: Test attempt to compile a nonexistent file.
 
 # TODO: Add test harnesses that just exercise the bulk file transfer
 # routines.
@@ -97,6 +110,9 @@ Example:
 
 # TODO: Run "sleep" as a compiler, then kill the client and make sure
 # that the server and "sleep" promptly terminate.
+
+# TODO: Set umask 0, then check that the files are created with mode
+# 0644.
 
 # TODO: Perhaps have a little compiler that crashes.  Check that the
 # signal gets properly reported back.
@@ -116,6 +132,11 @@ Example:
 
 # TODO: Test a compiler that sleeps for a long time; try killing the
 # server and make sure it goes away.
+
+# TODO: Set LANG=C before running all tests, to try to make sure that
+# localizations don't break attempts to parse error messages.  Is
+# setting LANG enough, or do we also need LC_*?  (Thanks to Oscar
+# Esteban.)
 
 # TODO: Test scheduler.  Perhaps run really slow jobs to make things
 # deterministic, and test that they're dispatched in a reasonable way.
@@ -146,9 +167,6 @@ Example:
 # TODO: Test lzo is parsed properly
 
 # TODO: Test with DISTCC_DIR set, and not set.
-
-# TODO: Using --lifetime does cause sporadic failures.  Ensure that
-# teardown kills all daemon processes and then stop using --lifetime.
 
 
 import time, sys, string, os, glob, re, socket
@@ -183,7 +201,7 @@ def _ShellSafe(s):
 # Some tests only make sense for certain object formats
 def _FirstBytes(filename, count):
     '''Returns the first count bytes from the given file.'''
-    f = open(filename, 'rb')
+    f = open(filename)
     try:
         return f.read(count)
     finally:
@@ -195,7 +213,7 @@ def _IsElf(filename):
     taken from /usr/share/file/magic on an ubuntu machine.
     '''
     contents = _FirstBytes(filename, 5)
-    return contents.startswith(b'\177ELF')
+    return contents.startswith('\177ELF')
 
 def _IsMachO(filename):
     '''Given a filename, determine if it's an Mach-O object file or
@@ -203,14 +221,14 @@ def _IsMachO(filename):
     is taken from /usr/share/file/magic on an ubuntu machine.
     '''
     contents = _FirstBytes(filename, 10)
-    return (contents.startswith(b'\xCA\xFE\xBA\xBE') or
-            contents.startswith(b'\xFE\xED\xFA\xCE') or
-            contents.startswith(b'\xCE\xFA\xED\xFE') or
+    return (contents.startswith('\xCA\xFE\xBA\xBE') or
+            contents.startswith('\xFE\xED\xFA\xCE') or
+            contents.startswith('\xCE\xFA\xED\xFE') or
             # The magic file says '4-bytes (BE) & 0xfeffffff ==
             # 0xfeedface' and '4-bytes (LE) & 0xfffffffe ==
             # 0xfeedface' are also mach-o.
-            contents.startswith(b'\xFF\xED\xFA\xCE') or
-            contents.startswith(b'\xCE\xFA\xED\xFF'))
+            contents.startswith('\xFF\xED\xFA\xCE') or
+            contents.startswith('\xCE\xFA\xED\xFF'))
     
 def _IsPE(filename):
     '''Given a filename, determine if it's a Microsoft PE object file or
@@ -218,17 +236,7 @@ def _IsPE(filename):
     /usr/share/file/magic on an ubuntu machine.
     '''
     contents = _FirstBytes(filename, 5)    
-    return contents.startswith(b'MZ')
-
-def _Touch(filename):
-    '''Update the access and modification time of the given file,
-    creating an empty file if it does not exist.
-    '''
-    f = open(filename, 'a')
-    try:
-        os.utime(filename, None)
-    finally:
-        f.close()
+    return contents.startswith('MZ')
 
 
 class SimpleDistCC_Case(comfychair.TestCase):
@@ -239,7 +247,7 @@ class SimpleDistCC_Case(comfychair.TestCase):
     def stripEnvironment(self):
         """Remove all DISTCC variables from the environment, so that
         the test is not affected by the development environment."""
-        for key in list(os.environ.keys()):
+        for key in os.environ.keys():
             if key[:7] == 'DISTCC_':
                 # NOTE: This only works properly on Python 2.2: on
                 # earlier versions, it does not call unsetenv() and so
@@ -313,7 +321,7 @@ as soon as that happens we can go ahead and start the client."""
         """Return command to start the daemon"""
         return (self.distccd() +
                 "--verbose --lifetime=%d --daemon --log-file %s "
-                "--pid-file %s --port %d --allow 127.0.0.1 --listen 127.0.0.1"
+                "--pid-file %s --port %d --allow 127.0.0.1"
                 % (self.daemon_lifetime(),
                    _ShellSafe(self.daemon_logfile),
                    _ShellSafe(self.daemon_pidfile),
@@ -369,7 +377,7 @@ class VersionOption_Case(SimpleDistCC_Case):
             out, err = self.runcmd("%s --version" % prog)
             assert out[-1] == '\n'
             out = out[:-1]
-            line1,line2,trash = out.split('\n', 2)
+            line1,line2,trash = string.split(out, '\n', 2)
             self.assert_re_match(r'^%s [\w.-]+ [.\w-]+$'
                                  % prog, line1)
             self.assert_re_match(r'^[ \t]+\(protocol.*\) \(default port 3632\)$'
@@ -387,12 +395,9 @@ class HelpOption_Case(SimpleDistCC_Case):
 class BogusOption_Case(SimpleDistCC_Case):
     """Test handling of --bogus-option.
 
-    Now that we support implicit compilers, this is passed to gcc,
-    which returns a non-zero status."""
+    Now that we support implicit compilers, this is passed to gcc, which returns 1."""
     def runtest(self):
-        error_rc, _, _ = self.runcmd_unchecked(_gcc + " --bogus-option")
-        assert error_rc != 0
-        self.runcmd(self.distcc() + _gcc + " --bogus-option", error_rc)
+        self.runcmd(self.distcc() + _gcc + " --bogus-option", 1)
         self.runcmd(self.distccd() + _gcc + " --bogus-option",
                     EXIT_BAD_ARGUMENTS)
 
@@ -404,7 +409,7 @@ class GccOptionsPassed_Case(SimpleDistCC_Case):
                                + self.distcc()
                                + _gcc + " --help")
         if re.search('distcc', out):
-            raise AssertionError("gcc help contains \"distcc\": \"%s\"" % out)
+            raise ("gcc help contains \"distcc\": \"%s\"" % out)
         self.assert_re_match(r"^Usage: [^ ]*gcc", out)
 
 
@@ -461,7 +466,7 @@ class IsSource_Case(SimpleDistCC_Case):
             expected = ("%s %s\n" % (issrc, iscpp))
             if o != expected:
                 raise AssertionError("issource %s gave %s, expected %s" %
-                                     (f, repr(o), repr(expected)))
+                                     (f, `o`, `expected`))
 
 
 
@@ -484,6 +489,7 @@ class ScanArgs_Case(SimpleDistCC_Case):
                  ("gcc -S -c hello.c", "distribute", "hello.c", "hello.s"),
                  ("gcc -M hello.c", "local"),
                  ("gcc -ME hello.c", "local"),
+                 
                  ("gcc -MD -c hello.c", "distribute", "hello.c", "hello.o"),
                  ("gcc -MMD -c hello.c", "distribute", "hello.c", "hello.o"),
 
@@ -518,20 +524,20 @@ class ScanArgs_Case(SimpleDistCC_Case):
                  ("gcc -dr -c foo.c", "local"),
                  ]
         for tup in cases:
-            self.checkScanArgs(*tup)
+            apply(self.checkScanArgs, tup)
 
     def checkScanArgs(self, ccmd, mode, input=None, output=None):
         o, err = self.runcmd("h_scanargs %s" % ccmd)
         o = o[:-1]                      # trim \n
-        os = o.split()
+        os = string.split(o)
         if mode != os[0]:
             self.fail("h_scanargs %s gave %s mode, expected %s" %
                       (ccmd, os[0], mode))
         if mode == 'distribute':
-            if os[1] != input:
+            if os[1] <> input:
                 self.fail("h_scanargs %s gave %s input, expected %s" %
                           (ccmd, os[1], input))
-            if os[2] != output:
+            if os[2] <> output:
                 self.fail("h_scanargs %s gave %s output, expected %s" %
                           (ccmd, os[2], output))
 
@@ -673,6 +679,14 @@ class Compile_c_Case(SimpleDistCC_Case):
       assert m_obj, line
       return m_obj.group(1)
 
+  def makeFile(self, f):
+      fd = open(f, "w")
+      fd.close()
+
+  def makeFiles(self, files):
+      for f in files:
+          self.makeFile(f)
+      
   def runtest(self):
 
       # Test dcc_discrepancy_filename
@@ -708,8 +722,7 @@ foo_bar""",
                     ]
 
       for dotd_contents, deps in dotd_cases:
-          for dep in deps:
-              _Touch(dep)
+          self.makeFiles(deps)
           # Now postulate the time that is the beginning of build. This time
           # is after that of all the dependencies.
           time_ref = time.time() + 1
@@ -732,16 +745,19 @@ foo_bar""",
                   # Line is non-blank
                   checked_deps[self.getDep(line)] = 1
           deps_list = deps[:]
-          checked_deps_list = list(checked_deps.keys())
+          checked_deps_list = checked_deps.keys()
           deps_list.sort()
           checked_deps_list.sort()
           self.assert_equal(checked_deps_list, deps_list)
 
           # Let's try to touch, say the last dep file. Then, we should expect
           # the name of that very file as the output because there's a fresh
-          # file.
+          # file. We'll have to advance real time beyond time_ref before doing
+          # this.
+          while time.time() <= time_ref:
+              time.sleep(1)
           if deps:
-              _Touch(deps[-1])
+              self.makeFile(deps[-1])
               out, err = self.runcmd(
                   "h_compile dcc_fresh_dependency_exists dotd '' %i" %
                   time_ref)
@@ -758,7 +774,7 @@ class ImplicitCompilerScan_Case(ScanArgs_Case):
         for tup in cases:
             # NB use "apply" rather than new syntax for compatibility with
             # venerable Pythons.
-            self.checkScanArgs(*tup)
+            apply(self.checkScanArgs, tup)
             
 
 class ExtractExtension_Case(SimpleDistCC_Case):
@@ -835,7 +851,7 @@ class ParseHostSpec_Case(SimpleDistCC_Case):
 """
         out, err = self.runcmd(("DISTCC_HOSTS=\"%s\" " % spec) + self.valgrind()
                                + "h_hosts")
-        assert out == expected, "expected %s\ngot %s" % (repr(expected), repr(out))
+        assert out == expected, "expected %s\ngot %s" % (`expected`, `out`)
 
 
 class Compilation_Case(WithDaemon_Case):
@@ -872,17 +888,17 @@ class Compilation_Case(WithDaemon_Case):
         cmd = self.compileCmd()
         out, err = self.runcmd(cmd)
         if out != '':
-            self.fail("compiler command %s produced output:\n%s" % (repr(cmd), out))
+            self.fail("compiler command %s produced output:\n%s" % (`cmd`, out))
         if err != '':
-            self.fail("compiler command %s produced error:\n%s" % (repr(cmd), err))
+            self.fail("compiler command %s produced error:\n%s" % (`cmd`, err))
 
     def link(self):
         cmd = self.linkCmd()
         out, err = self.runcmd(cmd)
         if out != '':
-            self.fail("command %s produced output:\n%s" % (repr(cmd), repr(out)))
+            self.fail("command %s produced output:\n%s" % (`cmd`, `out`))
         if err != '':
-            self.fail("command %s produced error:\n%s" % (repr(cmd), repr(err)))
+            self.fail("command %s produced error:\n%s" % (`cmd`, `err`))
 
     def compileCmd(self):
         """Return command to compile source"""
@@ -904,8 +920,9 @@ class Compilation_Case(WithDaemon_Case):
         return ""
 
     def checkCompileMsgs(self, msgs):
-        if len(msgs) > 0:
-            self.fail("expected no compiler messages, got \"%s\"" % msgs)
+        if msgs <> '':
+            self.fail("expected no compiler messages, got \"%s\""
+                      % msgs)
 
     def checkBuiltProgram(self):
         '''Check compile/link results.  By default, just try to execute.'''
@@ -928,21 +945,15 @@ class CompileHello_Case(Compilation_Case):
     def source(self):
         return """
 #include <stdio.h>
-#include "%s"
+#include "testhdr.h"
 int main(void) {
     puts(HELLO_WORLD);
     return 0;
 }
-""" % self.headerFilename()
+"""
 
     def checkBuiltProgramMsgs(self, msgs):
         self.assert_equal(msgs, "hello world\n")
-
-
-class CommaInFilename_Case(CompileHello_Case):
-
-    def headerFilename(self):
-      return 'foo1,2.h'
 
 
 class ComputedInclude_Case(CompileHello_Case):
@@ -1004,6 +1015,7 @@ int main(void) {
     return 0;
 }
 """
+
 
 class LanguageSpecific_Case(Compilation_Case):
     """Abstract base class to test building non-C programs."""
@@ -1145,11 +1157,7 @@ class SystemIncludeDirectories_Case(Compilation_Case):
     """Test -I/usr/include/sys"""
 
     def compileOpts(self):
-        if os.path.exists("/usr/include/sys/types.h"):
-          return "-I/usr/include/sys"
-        else:
-          raise comfychair.NotRunError (
-              "This test requires /usr/include/sys/types.h")
+        return "-I/usr/include/sys"
 
     def headerSource(self):
         return """
@@ -1210,6 +1218,14 @@ class Gdb_Case(CompileHello_Case):
           pass
         return "src/testtmp.c"
 
+    def createSource(self):
+        CompileHello_Case.createSource(self)
+        # Create an empty .gdbinit, so that we insulate this test
+        # from the ~/.gdbinit file of the user running it.
+        filename = ".gdbinit"
+        f = open(filename, 'w')
+        f.close()
+
     def compiler(self):
         """Command for compiling and linking."""
         return _gcc + " -g ";
@@ -1234,9 +1250,9 @@ class Gdb_Case(CompileHello_Case):
                " -o link/testtmp obj/testtmp.o")
         out, err = self.runcmd(cmd)
         if out != '':
-            self.fail("command %s produced output:\n%s" % (repr(cmd), repr(out)))
+            self.fail("command %s produced output:\n%s" % (`cmd`, `out`))
         if err != '':
-            self.fail("command %s produced error:\n%s" % (repr(cmd), repr(err)))
+            self.fail("command %s produced error:\n%s" % (`cmd`, `err`))
 
     def runtest(self):
         # Don't try to run the test if gdb is not installed
@@ -1274,7 +1290,7 @@ class Gdb_Case(CompileHello_Case):
         f = open('gdb_commands', 'w')
         f.write('break main\nrun\nnext\n')
         f.close()
-        out, errs = self.runcmd("gdb -nh --batch --command=gdb_commands "
+        out, errs = self.runcmd("gdb --batch --command=gdb_commands "
                                 "link/%s </dev/null" % testtmp_exe)
         # Normally we expect the stderr output to be empty.
         # But, due to gdb bugs, some versions of gdb will produce a
@@ -1284,7 +1300,6 @@ class Gdb_Case(CompileHello_Case):
           'Failed to read a valid object file image from memory.\n',
           'warning: Lowest section in system-supplied DSO at 0xffffe000 is .hash at ffffe0b4\n',
           'warning: no loadable sections found in added symbol-file /usr/lib/debug/lib/ld-2.7.so\n',
-          'warning: Could not load shared library symbols for linux-gate.so.1.\nDo you need "set solib-search-path" or "set sysroot"?\n',
         )
         if errs and errs not in ignorable_error_messages:
             self.assert_equal(errs, '')
@@ -1309,7 +1324,7 @@ class Gdb_Case(CompileHello_Case):
         gcc_preprocessing_preserves_pwd = (error_rc == 0);
         if ((pump_mode and _IsElf('./%s' % testtmp_exe))
           or ((not pump_mode) and gcc_preprocessing_preserves_pwd)):
-            out, errs = self.runcmd("gdb -nh --batch --command=../gdb_commands "
+            out, errs = self.runcmd("gdb --batch --command=../gdb_commands "
                                     "./%s </dev/null" % testtmp_exe)
             if errs and errs not in ignorable_error_messages:
                 self.assert_equal(errs, '')
@@ -1631,9 +1646,9 @@ class ScanIncludes_Case(CompileHello_Case):
         pump_mode = _server_options.find('cpp') != -1
         if pump_mode:
           if err != '':
-              self.fail("distcc command %s produced stderr:\n%s" % (repr(cmd), err))
+              self.fail("distcc command %s produced stderr:\n%s" % (`cmd`, err))
           if rc != 0:
-              self.fail("distcc command %s failed:\n%s" % (repr(cmd), rc))
+              self.fail("distcc command %s failed:\n%s" % (`cmd`, rc))
           self.assert_re_search(
               r"FILE      /.*/ScanIncludes_Case/testtmp.c", out);
           self.assert_re_search(
@@ -1677,7 +1692,7 @@ class HundredFold_Case(CompileHello_Case):
         return 120
     
     def runtest(self):
-        for unused_i in range(100):
+        for unused_i in xrange(100):
             self.runcmd(self.distcc()
                         + _gcc + " -o testtmp.o -c testtmp.c")
 
@@ -1690,7 +1705,7 @@ class Concurrent_Case(CompileHello_Case):
     def runtest(self):
         # may take about a minute or so
         pids = {}
-        for unused_i in range(50):
+        for unused_i in xrange(50):
             kid = self.runcmd_background(self.distcc() +
                                          _gcc + " -o testtmp.o -c testtmp.c")
             pids[kid] = kid
@@ -1715,7 +1730,7 @@ class BigAssFile_Case(Compilation_Case):
         # machines.
         
         f.write("int main() {}\n")
-        for i in range(200000):
+        for i in xrange(200000):
             f.write("int i%06d = %d;\n" % (i, i))
         f.close()
 
@@ -1823,7 +1838,7 @@ class SyntaxError_Case(Compilation_Case):
     def compile(self):
         rc, msgs, errs = self.runcmd_unchecked(self.compileCmd())
         self.assert_notequal(rc, 0)
-        self.assert_re_search(r'testtmp.c:1:.*error', errs)
+        self.assert_re_match(r'testtmp.c:1:.*error', errs)
         self.assert_equal(msgs, '')
 
     def runtest(self):
@@ -1949,7 +1964,7 @@ class ModeBits_Case(CompileHello_Case):
     """Check distcc obeys umask"""
     def runtest(self):
         self.runcmd("umask 0; distcc " + _gcc + " -c testtmp.c")
-        self.assert_equal(S_IMODE(os.stat("testtmp.o")[ST_MODE]), 0o666)
+        self.assert_equal(S_IMODE(os.stat("testtmp.o")[ST_MODE]), 0666)
 
 
 class CheckRoot_Case(SimpleDistCC_Case):
@@ -1985,13 +2000,13 @@ class EmptySource_Case(Compilation_Case):
     def sourceFilename(self):
         return "testtmp.i"
 
-class BadLogFile_Case(CompileHello_Case):
+class BadLogFile_Case(SimpleDistCC_Case):
     def runtest(self):
         self.runcmd("touch distcc.log")
         self.runcmd("chmod 0 distcc.log")
         msgs, errs = self.runcmd("DISTCC_LOG=distcc.log " + \
                                  self.distcc() + \
-                                 _gcc + " -c testtmp.c", expectedResult=0)
+                                 _gcc + " -c foo.c", expectedResult=1)
         self.assert_re_search("failed to open logfile", errs)
 
 
@@ -2164,7 +2179,6 @@ for path in os.environ['PATH'].split (':'):
 # All the tests defined in this suite
 tests = [
          CompileHello_Case,
-         CommaInFilename_Case,
          ComputedInclude_Case,
          BackslashInMacro_Case,
          BackslashInFilename_Case,

@@ -1,4 +1,4 @@
-#! /usr/bin/env python3
+#! /usr/bin/python2.4
 
 # Copyright 2007 Google Inc.
 #
@@ -16,7 +16,7 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301,
 # USA.
-
+ 
 """The skeleton for an include analyzer.
 
 This module defines the basic caches and helper functions for an
@@ -83,8 +83,7 @@ class IncludeAnalyzer(object):
     # Make a compressor for source files.
     self.compress_files = compress_files.CompressFiles(self.includepath_map,
                                                        self.directory_map,
-                                                       self.realpath_map,
-                                                       self.mirror_path)
+                                                       self.realpath_map)
     # A fast cache for avoiding calls into the mirror_path object.
     self.mirrored = set([])
 
@@ -139,7 +138,7 @@ class IncludeAnalyzer(object):
         os.path.join(currdir, fpath),
         self.currdir_idx,
         self.client_root_keeper.client_root)
-
+    
     closure = self.RunAlgorithm(fpath_resolved_pair, fpath_real)
     return closure
 
@@ -194,7 +193,7 @@ class IncludeAnalyzer(object):
 
   def DoStatResetTriggers(self):
     """Reset stat caches if a glob evaluates differently from earlier.
-
+    
     More precisely, if a path of a glob comes in or out of existence or has a
     new stamp, then reset stat caches."""
 
@@ -233,8 +232,8 @@ class IncludeAnalyzer(object):
 
   def DoCompilationCommand(self, cmd, currdir, client_root_keeper):
     """Parse and and process the command; then gather files and links."""
-
-    self.translation_unit = "unknown translation unit"  # don't know yet
+    
+    self.translation_unit = "unknown translation unit"  # don't know yet 
 
     # Any relative paths in the globs in the --stat_reset_trigger argument
     # must be evaluated relative to the include server's original working
@@ -270,15 +269,11 @@ class IncludeAnalyzer(object):
     # handful. We add put the system links first, because there should be very
     # few of them.
     links = self.compiler_defaults.system_links + self.mirror_path.Links()
-    files = self.compress_files.Compress(include_closure, client_root_keeper,
-                                         self.currdir_idx)
+    files = self.compress_files.Compress(include_closure, client_root_keeper)
 
-    files_and_links = files + links
+    forcing_files = self._ForceDirectoriesToExist()
 
-    # Note that the performance degradation comment above applies especially
-    # to forced include directories, unless disabled with --no_force_dirs
-    if basics.opt_no_force_dirs == False:
-      files_and_links += self._ForceDirectoriesToExist()
+    files_and_links = files + links + forcing_files
 
     realpath_map = self.realpath_map
 
@@ -346,7 +341,7 @@ class IncludeAnalyzer(object):
     where searchdir_i is an absolute path.  realpath_idx is a realpath
     index corresponding to a single #include (more exactly, it's the
     index of the path that the #include resolves to).
-
+    
     This include closure calculation omits any system header files,
     that is, header files found in a systemdir (recall systemdirs are
     those searchdirs that are built into the preprocessor, such as
@@ -396,7 +391,7 @@ class IncludeAnalyzer(object):
     This method to be overridden by derived class.
     """
 
-    raise Exception("RunAlgorithm not implemented.")
+    raise Exception, "RunAlgorithm not implemented."
 
   def ClearStatCaches(self):
     """Clear caches used for, or dependent on, stats."""
